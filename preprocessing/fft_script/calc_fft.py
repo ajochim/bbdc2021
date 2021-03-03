@@ -2,8 +2,8 @@ import soundfile as sf
 from scipy.signal import stft 
 import numpy as np
 
-dataset_loc = '/Users/yalehartmann/Seafile/BBDC-DEV/final_pre_dataset'
-out_folder = './dataset_fft'
+dataset_loc = './../../data/final_pre_dataset'
+out_folder = './../../data/dataset_fft'
 
 window_length = 1024
 window_overlap = 256
@@ -39,7 +39,7 @@ def plot_fft(fft, times, name):
     fig.patch.set_facecolor('white')
     ax.imshow(fft, origin="lower", aspect="auto")
     # use Time instead of window number. Uncomment line to use window number. 
-    ax.xaxis.set_major_formatter(lambda val, _: times[int(val)] if int(val) >= 0 and int(val) <= len(times) else '')
+    #ax.xaxis.set_major_formatter(lambda val, _: times[int(val)] if int(val) >= 0 and int(val) <= len(times) else '')
     plt.xlabel("Zeit")
     plt.ylabel("Frequenzband")
     plt.title("Frequenzen in {}".format(name))
@@ -56,6 +56,7 @@ if __name__ == '__main__':
     os.makedirs(out_folder)
     os.makedirs(out_folder + '/dev')
     os.makedirs(out_folder + '/eval')
+    shutil.copyfile(dataset_loc+"/dev-labels.csv", out_folder+"/dev-labels.csv")
 
 
     print('===', 'Processing training files', '============')
@@ -78,10 +79,10 @@ if __name__ == '__main__':
 
 
     # plot example fft:
-    print('===', 'Plotting example fft for', name, '============')
+    #print('===', 'Plotting example fft for', name, '============')
     
-    plot_fft(train_feats[name], train_times[name], name)
-    plt.savefig(name.replace('.wav', '.png'))
+    #plot_fft(train_feats[name], train_times[name], name)
+    #plt.savefig(name.replace('.wav', '.png'))
 
 
 
