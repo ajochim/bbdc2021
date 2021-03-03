@@ -10,7 +10,7 @@ General helper functions for the Bremen Big Data Challenge 2021
 import pandas as pd
 import numpy as np
 
-def read_train(pathToDataset): #TODO Val und Test abspalten
+def read_train(pathToDataset):
     """Liest Trainingsdaten inklusive Label ein"""
     trainLabels = pd.read_csv(pathToDataset+"/dev-labels.csv") 
     trainLabelsOneHot = pd.get_dummies(trainLabels['event_label'])
