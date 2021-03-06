@@ -9,41 +9,35 @@ General helper functions for the Bremen Big Data Challenge 2021
 """
 import pandas as pd
 import numpy as np
+import keras.backend as K
+import tensorflow as tf
 
-def read_train(pathToDataset):
-    """Liest Trainingsdaten inklusive Label ein"""
-    trainLabels = pd.read_csv(pathToDataset+"/dev-labels.csv") 
-    labelList = trainLabels["event_label"].unique()
-    trainLabelsOneHot = pd.get_dummies(trainLabels['event_label'])
-    trainLabelsOneHot["Noise"] = 0
-    labelList = trainLabelsOneHot.columns
-    X_train = []
-    Y_train = []
+LABEL_DICT =  {'Noise': 0, 'Bark': 1, 'Burping_and_eructation': 2, 'Camera':3, 'Cheering':4, 'Church_bell':5, 'Cough':6, 'Doorbell':7, 'Fireworks':8, 'Meow':9, 'Scratching_(performance_technique)':10, 'Shatter':11, 'Shout':12}
+
+
+def load_data(fileListName, datasetName, pathToDataDir="./../data/"):
+    """Liest Daten inklusive Label ein"""
+    ## Label laden und zu One-Hot codieren
+    fileList = pd.read_csv(pathToDataDir+fileListName)
+    fileList = fileList.replace({"event_label": LABEL_DICT}) #Zuerst zu numerischen Werten per Dictionary konvertieren, um zu vermeiden bei fehlenden Labels falsche Decodings zu erzeugen
+    trainLabels = fileList["event_label"].values
+    trainLabelsOneHot = np.zeros((trainLabels.size, trainLabels.max()+1))
+    trainLabelsOneHot[np.arange(trainLabels.size),trainLabels] = 1
+    ## Features aller Files laden
+    X = []
+    Y = []
     currentFile = ""
-    timepoints = np.genfromtxt(pathToDataset+"/dev/00001_mix.csv",delimiter=',')[:,0]
-    classNum = 13
-    for index, row in trainLabels.iterrows():
+    timepoints = np.genfromtxt(pathToDataDir+datasetName+"/dev/00001_mix.csv",delimiter=',')[:,0]
+    for index, row in fileList.iterrows():
         if row["filename"]!=currentFile:
             currentFile = row["filename"]
-            features = np.genfromtxt(pathToDataset+"/dev/"+row["filename"].replace(".wav", ".csv"),delimiter=',')
-            X_train.append(features[:,1:])
-            y = np.zeros((timepoints.size, classNum))
-            y[:,-1] = 1
-            Y_train.append(y)
-        Y_train[-1][np.where(np.logical_and(timepoints>=row["onset"], timepoints<=row["offset"])),:] = trainLabelsOneHot.iloc[index].values
-    return X_train, Y_train , labelList, timepoints   
-
-def splitTrain(X_train, Y_train, trainPortion=0.8, valPortion=0.1):
-    firstIdx = int(len(X_train)*trainPortion)
-    secondIdx = int(len(X_train)*valPortion)+firstIdx
-    X_validation = X_train[firstIdx:secondIdx]
-    Y_validation = Y_train[firstIdx:secondIdx]
-    X_test = X_train[secondIdx:]
-    Y_test = Y_train[secondIdx:]
-    X_train = X_train[:firstIdx]
-    Y_train = Y_train[:firstIdx]
-    return X_train, Y_train, X_validation, Y_validation, X_test, Y_test
-
+            features = np.genfromtxt(pathToDataDir+datasetName+"/dev/"+row["filename"].replace(".wav", ".csv"),delimiter=',')
+            X.append(features)
+            y = np.zeros((timepoints.size, len(LABEL_DICT)))
+            y[:,0] = 1
+            Y.append(y)
+        Y[-1][np.where(np.logical_and(timepoints>=row["onset"], timepoints<=row["offset"])),:] = trainLabelsOneHot[index]
+    return X, Y , timepoints, fileList   
 
 def dice_coef(y_true, y_pred, smooth=1):
     """
@@ -60,5 +54,3 @@ def dice_coef(y_true, y_pred, smooth=1):
 
 def dice_loss(y_true, y_pred):
     return 1-dice_coef(y_true, y_pred)
-    # Alternative implementation
-    #return 1-dice_coef(y_true, y_pred)   
