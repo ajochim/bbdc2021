@@ -13,6 +13,8 @@ import keras.backend as K
 import tensorflow as tf
 from itertools import groupby
 from operator import itemgetter
+import matplotlib.pyplot as plt
+from matplotlib import colors 
 
 LABEL_DICT =  {'Noise': 0, 'Bark': 1, 'Burping_and_eructation': 2, 'Camera':3, 'Cheering':4, 'Church_bell':5, 'Cough':6, 'Doorbell':7, 'Fireworks':8, 'Meow':9, 'Scratching_(performance_technique)':10, 'Shatter':11, 'Shout':12}
 invLabelMap = {v: k for k, v in LABEL_DICT.items()}
@@ -58,6 +60,9 @@ def dice_coef(y_true, y_pred, smooth=1):
 def dice_loss(y_true, y_pred):
     return 1-dice_coef(y_true, y_pred)
 
+def diceOfDF(y_true_df, y_pred_df, smooth=1):
+    pass
+
 def getPredictionAsSequenceDF(prediction, timepoints, dataframeWithFiles):
     y_predicted = np.argmax(prediction, axis=2)
     detectedEvents = []
@@ -65,11 +70,32 @@ def getPredictionAsSequenceDF(prediction, timepoints, dataframeWithFiles):
         pred = y_predicted[fileNumber]
         predAndTime = np.zeros((len(pred),2))
         predAndTime[:,0] = pred
-        predAndTime[:,1] = timepoints[1:]
+        predAndTime[:,1] = timepoints
         groups = [list(group) for key, group in groupby(predAndTime, itemgetter(0))]
         for group in groups:
             firstTime = group[0][1]
             lastTime = group[-1][1]
             key = int(group[0][0])
-            detectedEvents.append([dataframeWithFiles.iloc[fileNumber]["filename"], firstTime, lastTime, invLabelMap[key]]) 
+            if invLabelMap[key] != "Noise":
+                detectedEvents.append([dataframeWithFiles.iloc[fileNumber]["filename"], firstTime, lastTime, invLabelMap[key]]) 
     return pd.DataFrame(detectedEvents, columns=["filename", "onset", "offset", "event_label"])
+
+def plotPredictionAndGT(y_true_df, y_pred_df, case, timeDelta = 100):
+    sequenceLength = 10
+    timepoints = np.linspace(start=0, stop=sequenceLength, num=timeDelta)
+    cmap = colors.ListedColormap(['black', 'red','green', 'orange', 'violet', 'blue', 'darkgreen', 'white', 'darkblue', 'brown', 'darkred', 'gray', 'lightblue'])
+    caseTrueDf = y_true_df.loc[y_true_df["filename"].str.contains(str(case))]
+    casePredDf = y_pred_df.loc[y_pred_df["filename"].str.contains(str(case))]
+    toPlot = np.zeros((2, timeDelta))
+    for index, row in caseTrueDf.iterrows():
+        label = row["event_label"]
+        if isinstance(label, str):
+            label = LABEL_DICT(label)
+        toPlot[0, np.where(np.logical_and(timepoints>=row["onset"], timepoints<=row["offset"]))] = label
+    for index, row in casePredDf.iterrows():
+        label = row["event_label"]
+        if isinstance(label, str):
+            label = LABEL_DICT[label]
+        toPlot[1, np.where(np.logical_and(timepoints>=row["onset"], timepoints<=row["offset"]))] = label
+    plt.figure(figsize=(30,20))
+    plt.imshow(toPlot, cmap)

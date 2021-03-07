@@ -2,11 +2,12 @@ import soundfile as sf
 from scipy.signal import stft 
 import numpy as np
 
-dataset_loc = './../../data/final_pre_dataset'
-out_folder = './../../data/dataset_fft'
+window_length = 1024 # Orginal-Skript: 1024
+window_overlap = 523 # Original-Skript 256
+band_size = 6 #Original-Skript 32
 
-window_length = 1024
-window_overlap = 256
+dataset_loc = './../../data/final_pre_dataset'
+out_folder = './../../data/dataset_fft_l'+str(window_length)+"_o"+str(window_overlap)+"_b"+str(band_size)
 
 sample_rate = 16000
 
@@ -70,7 +71,7 @@ if __name__ == '__main__':
         if i % 1000 == 0:
             print(i, '/', max_len)
         # load
-        train_feats, train_times = load_and_calc_features([file_name], length=window_length, overlap=window_overlap, sample_rate=sample_rate, verbose=False)
+        train_feats, train_times = load_and_calc_features([file_name], length=window_length, overlap=window_overlap, sample_rate=sample_rate, verbose=False, band_size = band_size)
         name = list(train_feats.keys())[0]
         # merge time and fft
         tmp = np.concatenate([np.expand_dims(train_times[name][:-1], axis=0), train_feats[name]], axis=0).T
@@ -96,7 +97,7 @@ if __name__ == '__main__':
     for i, file_name in enumerate(eval_files):
         if i % 1000 == 0:
             print(i, '/', max_len)
-        eval_feats, eval_times = load_and_calc_features([file_name], length=window_length, overlap=window_overlap, sample_rate=sample_rate, verbose=False)
+        eval_feats, eval_times = load_and_calc_features([file_name], length=window_length, overlap=window_overlap, band_size = band_size, sample_rate=sample_rate, verbose=False)
         name = list(eval_feats.keys())[0]
         
         tmp = np.concatenate([np.expand_dims(eval_times[name][:-1], axis=0), eval_feats[name]], axis=0).T
