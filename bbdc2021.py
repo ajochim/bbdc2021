@@ -23,26 +23,28 @@ invLabelMap = {v: k for k, v in LABEL_DICT.items()}
 def load_data(fileListName, datasetName, pathToDataDir="./../data/"):
     """Liest Daten inklusive Label ein"""
     ## Label laden und zu One-Hot codieren
-    fileList = pd.read_csv(pathToDataDir+fileListName)
-    fileList = fileList.replace({"event_label": LABEL_DICT}) #Zuerst zu numerischen Werten per Dictionary konvertieren, um zu vermeiden bei fehlenden Labels falsche Decodings zu erzeugen
-    trainLabels = fileList["event_label"].values
+    labelDf = pd.read_csv(pathToDataDir+fileListName)
+    labelDf = labelDf.replace({"event_label": LABEL_DICT}) #Zuerst zu numerischen Werten per Dictionary konvertieren, um zu vermeiden bei fehlenden Labels falsche Decodings zu erzeugen
+    trainLabels = labelDf["event_label"].values
     trainLabelsOneHot = np.zeros((trainLabels.size, trainLabels.max()+1))
     trainLabelsOneHot[np.arange(trainLabels.size),trainLabels] = 1
     ## Features aller Files laden
     X = []
     Y = []
+    fileList = []
     currentFile = ""
     timepoints = np.genfromtxt(pathToDataDir+datasetName+"/dev/00001_mix.csv",delimiter=',')[:,0]
-    for index, row in fileList.iterrows():
+    for index, row in labelDf.iterrows():
         if row["filename"]!=currentFile:
             currentFile = row["filename"]
+            fileList.append(currentFile)
             features = np.genfromtxt(pathToDataDir+datasetName+"/dev/"+row["filename"].replace(".wav", ".csv"),delimiter=',')
             X.append(features)
             y = np.zeros((timepoints.size, len(LABEL_DICT)))
             y[:,0] = 1
             Y.append(y)
         Y[-1][np.where(np.logical_and(timepoints>=row["onset"], timepoints<=row["offset"])),:] = trainLabelsOneHot[index]
-    return X, Y , timepoints, fileList   
+    return np.array(X), np.array(Y) , timepoints, fileList   
 
 def dice_coef(y_true, y_pred, smooth=1):
     """
@@ -63,7 +65,7 @@ def dice_loss(y_true, y_pred):
 def diceOfDF(y_true_df, y_pred_df, smooth=1):
     pass
 
-def getPredictionAsSequenceDF(prediction, timepoints, dataframeWithFiles):
+def getPredictionAsSequenceDF(prediction, timepoints, fileList):
     y_predicted = np.argmax(prediction, axis=2)
     detectedEvents = []
     for fileNumber in range(len(y_predicted)):
@@ -77,15 +79,26 @@ def getPredictionAsSequenceDF(prediction, timepoints, dataframeWithFiles):
             lastTime = group[-1][1]
             key = int(group[0][0])
             if invLabelMap[key] != "Noise":
-                detectedEvents.append([dataframeWithFiles.iloc[fileNumber]["filename"], firstTime, lastTime, invLabelMap[key]]) 
+                detectedEvents.append([fileList[fileNumber], firstTime, lastTime, invLabelMap[key]]) 
     return pd.DataFrame(detectedEvents, columns=["filename", "onset", "offset", "event_label"])
 
-def plotPredictionAndGT(y_true_df, y_pred_df, case, timeDelta = 100):
+def plotPredictionAndGT(y_true, y_pred, case): 
+    y_trueCase = np.argmax(y_true[case], axis=1)
+    y_predCase = np.argmax(y_pred[case], axis=1)
+    cmap = colors.ListedColormap(['black', 'red','green', 'orange', 'violet', 'blue', 'darkgreen', 'white', 'darkblue', 'brown', 'darkred', 'gray', 'lightblue'])
+    both = np.stack((y_trueCase, y_predCase), axis=0)
+    plt.figure(figsize=(30,20))
+    plt.imshow(both, cmap)
+
+def plotPredictionAndGTFromDf(y_true_df, y_pred_df, case, timeDelta = 100):
     sequenceLength = 10
     timepoints = np.linspace(start=0, stop=sequenceLength, num=timeDelta)
     cmap = colors.ListedColormap(['black', 'red','green', 'orange', 'violet', 'blue', 'darkgreen', 'white', 'darkblue', 'brown', 'darkred', 'gray', 'lightblue'])
-    caseTrueDf = y_true_df.loc[y_true_df["filename"].str.contains(str(case))]
-    casePredDf = y_pred_df.loc[y_pred_df["filename"].str.contains(str(case))]
+    caseTrueDf = y_true_df.loc[y_true_df["filename"].str.match("0+"+str(case)+"_mix")]
+    casePredDf = y_pred_df.loc[y_pred_df["filename"].str.match("0+"+str(case)+"_mix")]
+    if caseTrueDf.shape[0]==0:
+        print("Case nicht in Datensatz")
+        return
     toPlot = np.zeros((2, timeDelta))
     for index, row in caseTrueDf.iterrows():
         label = row["event_label"]
@@ -97,5 +110,6 @@ def plotPredictionAndGT(y_true_df, y_pred_df, case, timeDelta = 100):
         if isinstance(label, str):
             label = LABEL_DICT[label]
         toPlot[1, np.where(np.logical_and(timepoints>=row["onset"], timepoints<=row["offset"]))] = label
+    print(toPlot[0])
     plt.figure(figsize=(30,20))
     plt.imshow(toPlot, cmap)
