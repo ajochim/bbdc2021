@@ -61,7 +61,7 @@ def evaluate(prediction_file, ground_truth_file):
             difference = ref_trial_set - hyp_trial_set
             return float('nan'), "Each file needs to have at least one label. {} file(s) missing, e.g. {}".format(len(difference), list(difference)[:3])
         # dtypes check
-        if not numpy.all(hyp_data.dtypes == numpy.array([numpy.dtype('O'), numpy.dtype('float64'), numpy.dtype('float64'), numpy.dtype('O')])):
+        if not np.all(hyp_data.dtypes == np.array([np.dtype('O'), np.dtype('float64'), np.dtype('float64'), np.dtype('O')])):
             return float('nan'), "Incorrect data types. Make sure the csv order is correct and each column uses the correct type."
 
         for index, row in hyp_data.iterrows():
