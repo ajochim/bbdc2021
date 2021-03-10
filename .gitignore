@@ -1,4 +1,8 @@
-/data
 *.pyc
 *checkpoint.ipynb
 *checkpoint.py
+data/*
+!data/train.csv
+!data/validation.csv
+!data/test.csv
+

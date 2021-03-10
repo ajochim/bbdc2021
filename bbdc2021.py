@@ -16,6 +16,9 @@ from operator import itemgetter
 import matplotlib.pyplot as plt
 from matplotlib import colors 
 
+np.random.seed(1)
+tf.random.set_seed(1)
+
 LABEL_DICT =  {'Noise': 0, 'Bark': 1, 'Burping_and_eructation': 2, 'Camera':3, 'Cheering':4, 'Church_bell':5, 'Cough':6, 'Doorbell':7, 'Fireworks':8, 'Meow':9, 'Scratching_(performance_technique)':10, 'Shatter':11, 'Shout':12}
 invLabelMap = {v: k for k, v in LABEL_DICT.items()}
 
@@ -39,7 +42,7 @@ def load_data(fileListName, datasetName, pathToDataDir="./../data/"):
             currentFile = row["filename"]
             fileList.append(currentFile)
             features = np.genfromtxt(pathToDataDir+datasetName+"/dev/"+row["filename"].replace(".wav", ".csv"),delimiter=',')
-            X.append(features)
+            X.append(features[:,1:])
             y = np.zeros((timepoints.size, len(LABEL_DICT)))
             y[:,0] = 1
             Y.append(y)
