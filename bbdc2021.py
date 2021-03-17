@@ -185,3 +185,20 @@ def groupSequences(prediction_one_hot, timepoints):
     predAndTime[:,1] = timepoints
     predAndTime[:,2] = np.arange(len(y_predicted))
     return [list(group) for key, group in groupby(predAndTime, itemgetter(0))]
+
+def load_challenge_data(fileListName, datasetName, pathToDataDir="./../data/"):
+    """Liest Daten inklusive Label ein"""
+    ## Label laden und zu One-Hot codieren
+    labelDf = pd.read_csv(pathToDataDir+fileListName)
+    ## Features aller Files laden
+    X = []
+    fileList = []
+    currentFile = ""
+    timepoints = np.genfromtxt(pathToDataDir+datasetName+"/eval/10001_mix.csv",delimiter=',')[:,0]
+    for index, row in labelDf.iterrows():
+        if row["filename"]!=currentFile:
+            currentFile = row["filename"]
+            fileList.append(currentFile)
+            features = np.genfromtxt(pathToDataDir+datasetName+"/eval/"+row["filename"].replace(".wav", ".csv"),delimiter=',')
+            X.append(features[:,1:])
+    return np.array(X), timepoints, fileList  

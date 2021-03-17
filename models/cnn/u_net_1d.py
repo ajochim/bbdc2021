@@ -35,8 +35,8 @@ def u_net(inputShape, channels, padding = "same", activation="softmax", numClass
         shortcuts.append(x)
         x = layers.MaxPooling1D()(x)
         
-    x = conv_block_function(x, channels[numLayer], padding)
-    x = conv_block_function(x, channels[numLayer], padding)
+    x = conv_block_function(x, channels[numLayer+1], padding)
+    x = conv_block_function(x, channels[numLayer+1], padding)
     
     #Decoder start
     for numLayer in reversed(range(len(channels)-1)):
