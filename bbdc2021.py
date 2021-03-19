@@ -68,22 +68,27 @@ def dice_loss(y_true, y_pred):
 def diceOfDF(y_true_df, y_pred_df, smooth=1):
     pass
 
-def getPredictionAsSequenceDF(prediction, timepoints, fileList):
-    y_predicted = np.argmax(prediction, axis=2)
+def getPredictionAsSequenceDF(prediction, timepoints, fileList, calculateProbs=False):
     detectedEvents = []
-    for fileNumber in range(len(y_predicted)):
-        pred = y_predicted[fileNumber]
-        predAndTime = np.zeros((len(pred),2))
-        predAndTime[:,0] = pred
-        predAndTime[:,1] = timepoints
-        groups = [list(group) for key, group in groupby(predAndTime, itemgetter(0))]
+    for fileNumber in range(len(prediction)):
+        groups = groupSequences(prediction[fileNumber], timepoints)
         for group in groups:
             firstTime = group[0][1]
             lastTime = group[-1][1]
+            firstIndex = int(group[0][2])
+            lastIndex = int(group[-1][2])
             key = int(group[0][0])
+            columns = ["filename", "onset", "offset", "event_label"]
+            events = [fileList[fileNumber], firstTime, lastTime, invLabelMap[key]]
+            if calculateProbs:
+                columns.append("MeanProb")
+                columns.append("MedianProb")
+                events.append(np.mean(prediction[fileNumber, firstIndex:lastIndex, key]))
+                events.append(np.median(prediction[fileNumber, firstIndex:lastIndex, key]))
             if invLabelMap[key] != "Noise":
-                detectedEvents.append([fileList[fileNumber], firstTime, lastTime, invLabelMap[key]]) 
-    return pd.DataFrame(detectedEvents, columns=["filename", "onset", "offset", "event_label"])
+                detectedEvents.append(events) 
+    return pd.DataFrame(detectedEvents, columns=columns)
+
 
 def plotPredictionAndGT(y_true, y_pred, case): #TODO Warum werden die Farben noch nicht fest gemapped?
     y_trueCase = np.argmax(y_true[case], axis=1)
@@ -141,9 +146,9 @@ def postProcess(prediction_one_hot, timepoints, timeThresh = 0.5, noiseThresh = 
         firstIndex = int(group[0][2])
         lastIndex = int(group[-1][2])
         key = int(group[0][0])
-        if key!=prediction_one_hot.shape[1]:
-            finalPrediction[firstIndex:lastIndex+1,key]=1
-        else:
+        if key!=prediction_one_hot.shape[1]: #Bereich wurde als sicher markiert
+            finalPrediction[firstIndex:lastIndex+1,key]=prediction_one_hot[firstIndex:lastIndex+1, key]
+        else: #Bereich unsicher, weil zu kurz
             probabilitiesOfGroup = prediction_one_hot[firstIndex:lastIndex+1]
             probabilityForClass = np.sum(probabilitiesOfGroup, axis=0) #TODO prod oder sum?
             ownLength = lastIndex - firstIndex+1
@@ -167,7 +172,7 @@ def postProcess(prediction_one_hot, timepoints, timeThresh = 0.5, noiseThresh = 
                 weightedProbabilities = probabilityForClass*lengthFactor
                 #print(weightedProbabilities)
                 newKey = np.argmax(weightedProbabilities)
-            finalPrediction[firstIndex:lastIndex+1, newKey]=1
+            finalPrediction[firstIndex:lastIndex+1, newKey]=probabilitiesOfGroup[:,newKey]
     return finalPrediction
 
 def getSequenceLength(group, classNum):
