@@ -36,12 +36,12 @@ def load_data(fileListName, datasetName, pathToDataDir="./../data/"):
     Y = []
     fileList = []
     currentFile = ""
-    timepoints = np.genfromtxt(pathToDataDir+datasetName+"/dev/00001_mix.csv",delimiter=',')[:,0]
+    timepoints = np.genfromtxt(pathToDataDir+datasetName+"/00001_mix.csv",delimiter=',')[:,0]
     for index, row in labelDf.iterrows():
         if row["filename"]!=currentFile:
             currentFile = row["filename"]
             fileList.append(currentFile)
-            features = np.genfromtxt(pathToDataDir+datasetName+"/dev/"+row["filename"].replace(".wav", ".csv"),delimiter=',')
+            features = np.genfromtxt(pathToDataDir+datasetName+row["filename"].replace(".wav", ".csv"),delimiter=',')
             X.append(features[:,1:])
             y = np.zeros((timepoints.size, len(LABEL_DICT)))
             y[:,0] = 1
