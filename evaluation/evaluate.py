@@ -78,3 +78,40 @@ def evaluate(prediction_file, ground_truth_file):
         return float('nan'), "Could not calculate error."
 
     return score, 'Valid file'
+    
+'''
+def evaluate_from_test_df(prediction_file, ref_data):
+    # argument ref_data will be pandas dataframe of test data
+    #ref_data, ref_label_set, ref_trial_set = _load_trials(ground_truth_file)
+    #ref_data = pd.read_csv(file_path, header=0, usecols=[0,1,2,3])
+
+    # known labels
+    ref_label_set = set(ref_data["event_label"].unique())
+
+    # known files
+    ref_trial_set = set(ref_data["filename"].unique())
+    try:
+        hyp_data, hyp_label_set, hyp_trial_set = _load_trials(prediction_file)
+        # files check
+        if ref_trial_set != hyp_trial_set:
+            difference = ref_trial_set - hyp_trial_set
+            return float('nan'), "Each file needs to have at least one label. {} file(s) missing, e.g. {}".format(len(difference), list(difference)[:3])
+        # dtypes check
+        if not np.all(hyp_data.dtypes == np.array([np.dtype('O'), np.dtype('float64'), np.dtype('float64'), np.dtype('O')])):
+            return float('nan'), "Incorrect data types. Make sure the csv order is correct and each column uses the correct type."
+
+        for index, row in hyp_data.iterrows():
+            check_ok, check_msg = check_format(index, row, ref_label_set)
+            if not check_ok:
+                return float('nan'), check_msg
+    except Exception as e:
+        return float('nan'), str(e)
+
+    try:
+        score = score_all(hyp_data, ref_data)
+    except Exception as err:
+        print(err)
+        return float('nan'), "Could not calculate error."
+
+    return score, 'Valid file'
+'''
