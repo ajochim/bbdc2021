@@ -272,12 +272,12 @@ def loading_block1(param):
 
 def split_block1(X_dev, Y_dev, timepoints, filelist_dev, split_param):
     """Splits data set by selecting the last chunk for the test set."""
-    fraction = split_param['test_split_fraction']
-    print('Splitting last', fraction, 'from dev set as test set.')
-    X_train_val, X_test, Y_train_val, Y_test = train_test_split(X_dev, Y_dev,
-                                                                test_size=fraction,
-                                                                shuffle=False)
-    testFileList = filelist_dev[-int(fraction*len(filelist_dev)):]
+    i_min, i_max = split_param['test_split_range']
+    print('Splitting test set at indices', i_min, 'to', i_max, 'from dev set.')
+    X_test, Y_test = X_dev[i_min:i_max], Y_dev[i_min:i_max]
+    X_train_val = np.delete(X_dev, list(range(i_min, i_max)), axis=0)
+    Y_train_val = np.delete(Y_dev, list(range(i_min, i_max)), axis=0)
+    testFileList = filelist_dev[i_min:i_max]
     df = getPredictionAsSequenceDF(Y_test, timepoints, testFileList)
     df.to_csv("test_ref_current.csv", index=False)
     return X_train_val, X_test, Y_train_val, Y_test, testFileList
@@ -309,6 +309,7 @@ def model_block1_unet(X_train_val, Y_train_val, unet_param):
                         epochs=unet_param['epochs'],
                         validation_data=(X_val, Y_val),
                         shuffle=True, callbacks=[checkpoint])
+    model.save(unet_param['model_save_path'] + 'model')
     return history, model
 
 def dice_coef(y_true, y_pred, smooth=1):
