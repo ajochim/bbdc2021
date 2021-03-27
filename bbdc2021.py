@@ -29,6 +29,7 @@ import evaluation.evaluate as evaluate
 import models.cnn.u_net_1d as unet
 reload(unet)
 from tqdm import tqdm
+import ast
 
 np.random.seed(1)
 tf.random.set_seed(1)
@@ -164,7 +165,7 @@ def calc_fft(param):
                    delimiter=',')
 
 def load_data(fileListName, datasetName, pathToDataDir="./../data/"):
-    """Loads csv data with labelts. Challenge dummy csv file can be used to
+    """Loads csv data with labels. Challenge dummy csv file can be used to
     also load challenge data."""
     ## Label laden und zu One-Hot codieren
     labelDf = pd.read_csv(pathToDataDir+fileListName)
@@ -196,6 +197,32 @@ def load_data(fileListName, datasetName, pathToDataDir="./../data/"):
         Y[-1][np.where(np.logical_and(timepoints >= row["onset"],\
           timepoints <= row["offset"])), :] = trainLabelsOneHot[index]
     return np.array(X), np.array(Y), timepoints, fileList
+
+def load_audioset(fileListName, datasetName, pathToDataDir="./../googleData/fft/"):
+    """Loads csv data with labels. Challenge dummy csv file can be used to
+    also load challenge data."""
+    ## Label laden und zu One-Hot codieren
+    labelDf = pd.read_csv(pathToDataDir+fileListName)
+    # Zuerst zu numerischen Werten per Dictionary konvertieren,
+    # um zu vermeiden bei fehlenden Labels falsche Decodings zu erzeugen
+    labelDf['event_label'] = labelDf['event_label'].apply(ast.literal_eval)
+    ## Features aller Files laden
+    X = []
+    Y = []
+    fileList = []
+    for index, row in tqdm(labelDf.iterrows()):
+        currentFile = row["# YTID"]
+        fileList.append(currentFile)
+        features = np.genfromtxt(pathToDataDir + datasetName \
+                                 + currentFile+".csv",
+                                 delimiter=',')
+        X.append(features[:, 1:])
+        y = np.zeros(len(LABEL_DICT))
+        y[0] = 1
+        for label in row["event_label"]:
+            y[LABEL_DICT[label]]=1
+        Y.append(y)
+    return X, Y, fileList
 
 def scale(x_dev, x_challenge, scaling='no'):
     """Saves and returns dev and challenge data. Reads data if already
