@@ -22,8 +22,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 from matplotlib import colors
-import keras
-import keras.backend as K
+#import keras
+import tensorflow.keras.backend as K
 import tensorflow as tf
 import evaluation.evaluate as evaluate
 import models.cnn.u_net_1d as unet
@@ -281,10 +281,12 @@ def loading_block1(param):
     else:
         print('Loading dev set:')
         X_dev, Y_dev, timepoints, filelist_dev = load_data(dev_csv,
-                                                           csv_folder + 'dev/')
+                                                           csv_folder + 'dev/',
+                                                           pathToDataDir=param['data_folder'])
         print('Loading eval set:')
         X_challenge, _, _, filelist_challenge = load_data(eval_csv,
-                                                          csv_folder + 'eval/')
+                                                          csv_folder + 'eval/',
+                                                          pathToDataDir=param['data_folder'])
         print('Scaling files.')
         X_dev, X_challenge = scale(X_dev, X_challenge, scaling='no')
         print('Saving to numpy arrays.')
@@ -309,8 +311,21 @@ def split_block1(X_dev, Y_dev, timepoints, filelist_dev, split_param):
     df.to_csv("test_ref_current.csv", index=False)
     return X_train_val, X_test, Y_train_val, Y_test, testFileList
 
+def plot_history(history, measure='accuracy'):
+    """Plots history for a speicic measure (accuracy, mae, loss etc)."""
+    plt.plot(history.history[measure])
+    plt.plot(history.history['val_' + measure])
+    plt.title('model ' + measure)
+    plt.ylabel(measure)
+    plt.xlabel('epoch')
+    plt.legend(['train', 'validation'], loc='upper left')
+    plt.show()
+
 def model_block1_unet(X_train_val, Y_train_val, unet_param):
     """Trains unet."""
+    if os.path.exists('model.h5'):
+        os.remove('model.h5')
+        print('Existing model.h5 removed.')
     print('Tensorflow version:', tf.__version__)
     if unet_param['load_path'] is not None:
         print('Loading existing model from path:', unet_param['load_path'])
@@ -320,16 +335,18 @@ def model_block1_unet(X_train_val, Y_train_val, unet_param):
     channels = unet_param['channels']
     inputShape = X_train_val[0].shape
     model = unet.u_net(inputShape, channels,
-                       lessParameter=unet_param['lessParameter'])
+                       lessParameter=unet_param['lessParameter'],
+                       kernel_size=unet_param['kernel_size'],
+                       first_kernel_size=unet_param['first_kernel_size'])
     val_fraction = unet_param['val_split_fraction']
     X_train, X_val, Y_train, Y_val = train_test_split(X_train_val, Y_train_val,
                                                       test_size=val_fraction,
                                                       shuffle=False)
-    checkpoint = keras.callbacks.ModelCheckpoint('model.h5', verbose=1,
-                                                 monitor='val_loss',
-                                                 save_best_only=True,
-                                                 mode='auto')
-    opt = keras.optimizers.Adam(learning_rate=unet_param['learning_rate'])
+    checkpoint = tf.keras.callbacks.ModelCheckpoint('model.h5', verbose=1,
+                                                    monitor='val_loss',
+                                                    save_best_only=True,
+                                                    mode='auto')
+    opt = tf.keras.optimizers.Adam(learning_rate=unet_param['learning_rate'])
     model.compile(optimizer=opt, loss=unet_param['loss'],
                   metrics=['mae', 'accuracy'])
     history = model.fit(X_train, Y_train, batch_size=unet_param['batch_size'],
@@ -337,6 +354,9 @@ def model_block1_unet(X_train_val, Y_train_val, unet_param):
                         validation_data=(X_val, Y_val),
                         shuffle=True, callbacks=[checkpoint])
     model.save(unet_param['model_save_path'] + 'model')
+    plot_history(history, 'accuracy')
+    plot_history(history, 'mae')
+    plot_history(history, 'loss')
     return history, model
 
 def dice_coef(y_true, y_pred, smooth=1):
@@ -387,10 +407,10 @@ def evaluation_block1(X_test, Y_test, timepoints, testFileList, model,
     """Evaluates current model on test data from dev set. Also calculates
     PSDS score."""
     prediction = model.predict(X_test)
-    scores = model.evaluate(X_test, Y_test)
+    scores_list = model.evaluate(X_test, Y_test)
     print('')
     print('Evaluation:')
-    print('Loss, MAE, Accuracy', scores)
+    print('Loss, MAE, Accuracy', scores_list)
     prediction_df = getPredictionAsSequenceDF(prediction, timepoints, testFileList)
     pred_csv_path = eval_param['prediction_path'] + 'test_pred_model.csv'
     prediction_df.to_csv(pred_csv_path, index=False)
@@ -398,8 +418,10 @@ def evaluation_block1(X_test, Y_test, timepoints, testFileList, model,
     #dev_df = pd.read_csv(dev_csv_path, header=0, usecols=[0, 1, 2, 3])
     #test_df = dev_df[dev_df.filename.isin(testFileList)]
     test_csv_path = eval_param['prediction_path'] + 'test_ref_current.csv'
-    print('PSDS', evaluate.evaluate(pred_csv_path, test_csv_path))
+    psds_info = evaluate.evaluate(pred_csv_path, test_csv_path)
+    print('PSDS', psds_info)
     print('')
+    return scores_list, psds_info[0]
 
  #TODO Warum werden die Farben noch nicht fest gemapped?
  
@@ -531,8 +553,9 @@ def postprocessing_with_evaluation_block1(x_test, y_test, timepoints,
         #dev_df = pd.read_csv(dev_csv_path, header=0, usecols=[0, 1, 2, 3])
         #test_df = dev_df[dev_df.filename.isin(test_file_list)]
         test_csv_path = param['prediction_path'] + 'test_ref_current.csv'
-        print('PSDS', evaluate.evaluate(pred_csv_path, test_csv_path))    
-    return post_processed_test, post_processed_prediction
+        post_processed_psds_info = evaluate.evaluate(pred_csv_path, test_csv_path)
+        print('PSDS', post_processed_psds_info)    
+    return post_processed_test, post_processed_prediction, post_processed_psds_info[0]
 
 def getSequenceLength(group, classNum):
     groupLength = np.zeros(classNum)
