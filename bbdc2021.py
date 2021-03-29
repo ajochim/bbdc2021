@@ -222,7 +222,7 @@ def load_audioset(fileListName, datasetName, pathToDataDir="./../googleData/fft/
         for label in row["event_label"]:
             y[LABEL_DICT[label]]=1
         Y.append(y)
-    return X, Y, fileList
+    return np.array(X), np.array(Y), fileList
 
 def scale(x_dev, x_challenge, scaling='no'):
     """Saves and returns dev and challenge data. Reads data if already
