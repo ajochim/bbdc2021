@@ -28,8 +28,9 @@ def load_and_calc_features (files, length=1024, overlap=256, band_size=32, sampl
         _, samp_times, data_spec = stft(data, fs = sample_rate, window = 'blackman', nperseg=length, noverlap=overlap)
         data_spec = np.log(np.abs(data_spec) + 0.00000000001)
         data_final = np.zeros((max_freq//band_size, data_spec.shape[1] - 1))
-        for i in range(0, max_freq, band_size):
-            data_final[int(i//band_size),:] = np.sqrt(np.sum(np.square(data_spec[i:i+band_size,:-1]), axis=0))
+
+        for i in range(0, max_freq//band_size):
+            data_final[int(i),:] = np.sqrt(np.sum(np.square(data_spec[i:i+band_size,:-1]), axis=0))
         feats[f] = data_final
         times[f] = samp_times
     return feats, times
@@ -63,7 +64,7 @@ if __name__ == '__main__':
     print('===', 'Processing training files', '============')
 
     # train files
-    train_files = sorted([x.split('\\')[-1] for x in glob.glob(f'{dataset_loc}/dev/*.wav')])
+    train_files = sorted([x.replace('\\', '/') for x in glob.glob(f'{dataset_loc}/dev/*.wav')]) #.split('\\')[-1]
     max_len = len(train_files)
 
     # load and save train files (we could pass the full array to the function, but not everyone might have the mem space to do so)
@@ -90,7 +91,7 @@ if __name__ == '__main__':
     print('===', 'Processing evaluation files', '============')
 
     # load eval files
-    eval_files = sorted([x.split('\\')[-1] for x in glob.glob(f'{dataset_loc}/eval/*.wav')])
+    eval_files = sorted([x.replace('\\', '/') for x in glob.glob(f'{dataset_loc}/eval/*.wav')]) #.split('\\')[-1]
     max_len = len(eval_files)
 
     # save eval files
