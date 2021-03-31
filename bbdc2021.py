@@ -198,6 +198,24 @@ def load_data(fileListName, datasetName, pathToDataDir="./../data/"):
           timepoints <= row["offset"])), :] = trainLabelsOneHot[index]
     return np.array(X), np.array(Y), timepoints, fileList
 
+def load_train_test(path, label_file="train.csv", test_size=[], **kwargs):
+    ''' Loads train data (and test data if required, suffling possible) '''
+    X_next, Y_next, timepoints, trainFileList = load_data(label_file, path)
+    X_out = []
+    Y_out = []
+    
+    if not isinstance(test_size, list):
+        test_size = [test_size]
+        
+    for i in range(0, len(test_size)):
+        X_save, X_next, Y_save, Y_next = train_test_split(X_next, Y_next, test_size=np.prod(test_size[:i+1]), **kwargs)
+        X_out.append(X_save)
+        Y_out.append(Y_save)
+        
+    X_out.append(X_next)
+    Y_out.append(Y_next)
+    return *X_out, *Y_out
+
 def load_audioset(fileListName, datasetName, pathToDataDir="./../googleData/fft/"):
     """Loads csv data with labels. Challenge dummy csv file can be used to
     also load challenge data."""
