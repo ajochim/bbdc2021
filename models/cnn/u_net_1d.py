@@ -19,11 +19,14 @@ def conv_bn_relu_block_lessParameter(x, numChannels, padding, kernel_size=3):
 
 
 def u_net(inputShape, channels, padding="same", activation="softmax",
-          numClasses=13, lessParameter=False, kernel_size=3, first_kernel_size=3):
+          numClasses=13, lessParameter=False, kernel_size=3, first_kernel_size=3, inputLayer = None):
     if padding != "same":
         print("Gibt bisher nur Same-Padding")
         return
-    input_layer = tf.keras.layers.Input(shape=(inputShape))
+    if not(inputLayer is None):
+        input_layer = inputLayer
+    else:
+        input_layer = tf.keras.layers.Input(shape=(inputShape))
     conv_block_function = conv_bn_relu_block
     if lessParameter:
         conv_block_function = conv_bn_relu_block_lessParameter
