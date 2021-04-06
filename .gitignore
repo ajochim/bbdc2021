@@ -5,4 +5,5 @@ data/*
 !data/train.csv
 !data/validation.csv
 !data/test.csv
+!data/challenge_dummyWithTime.csv
 
