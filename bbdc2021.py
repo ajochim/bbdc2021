@@ -13,10 +13,13 @@ import shutil
 from itertools import groupby
 from operator import itemgetter
 from importlib import reload
+import scipy.io.wavfile
 from scipy.signal import stft
 import soundfile as sf
 import numpy as np
 import pandas as pd
+from sklearn.utils import shuffle
+from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import MinMaxScaler
@@ -42,7 +45,7 @@ LABEL_DICT = {'Noise': 0, 'Bark': 1, 'Burping_and_eructation': 2, 'Camera': 3,
 
 invLabelMap = {v: k for k, v in LABEL_DICT.items()}
 
-def data_folder_format_string(load_param, csv_stage=True, melfilter=None):
+def data_folder_format_string(load_param, csv_stage=True):
     """Returns a format string that can be used for the saving path."""
     format_string = ''
     if csv_stage:
@@ -54,8 +57,22 @@ def data_folder_format_string(load_param, csv_stage=True, melfilter=None):
     if not csv_stage:
         format_string = format_string + '_'
         format_string = format_string + str(load_param['scaling']) + 'scaling'
-    if melfilter is not None:
-        pass
+    format_string = format_string + '/'
+    return format_string
+
+def data_folder_format_string_mel(load_param, csv_stage=True):
+    """Returns a format string that can be used for the saving path."""
+    format_string = ''
+    if csv_stage:
+        format_string = 'mel_'
+    format_string = format_string + 'size' + str(load_param['frame_size'])
+    format_string = format_string + 'stride' + str(load_param['frame_stride'])
+    format_string = format_string + 'nfft' + str(load_param['nfft'])
+    format_string = format_string + 'mel_filter' + str(load_param['mel_filter'])
+    if not csv_stage:
+        format_string = format_string + '_'
+        format_string = format_string + 'mel_'
+        format_string = format_string + str(load_param['scaling']) + 'scaling'
     format_string = format_string + '/'
     return format_string
 
@@ -163,6 +180,125 @@ def calc_fft(param):
                               eval_feats[name]], axis=0).T
         np.savetxt(out_folder + '/eval/' + name.replace('.wav', '.csv'), tmp,
                    delimiter=',')
+
+def getFilterBank(sample_rate, nfilt, param):
+    nfft = param['nfft']
+    low_freq_mel = 0
+    high_freq_mel = (2595 * np.log10(1 + (sample_rate / 2) / 700))  # Convert Hz to Mel
+    mel_points = np.linspace(low_freq_mel, high_freq_mel, nfilt + 2)  # Equally spaced in Mel scale
+    hz_points = (700 * (10**(mel_points / 2595) - 1))  # Convert Mel to Hz
+    bin = np.floor((nfft + 1) * hz_points / sample_rate)
+
+    fbank = np.zeros((nfilt, int(np.floor(nfft / 2 + 1))))
+    for m in range(1, nfilt + 1):
+        f_m_minus = int(bin[m - 1])   # left
+        f_m = int(bin[m])             # center
+        f_m_plus = int(bin[m + 1])    # right
+
+        for k in range(f_m_minus, f_m):
+            fbank[m - 1, k] = (k - bin[m - 1]) / (bin[m] - bin[m - 1])
+        for k in range(f_m, f_m_plus):
+            fbank[m - 1, k] = (bin[m + 1] - k) / (bin[m + 1] - bin[m])
+    return fbank
+
+def getFrames(signal, sample_rate, param):
+    frame_size = param['frame_size']
+    frame_stride = param['frame_stride']
+    frame_length, frame_step = frame_size * sample_rate, frame_stride * sample_rate  # Convert from seconds to samples
+    signal_length = len(signal)
+    frame_length = int(round(frame_length))
+    frame_step = int(round(frame_step))
+    num_frames = int(np.ceil(float(np.abs(signal_length - frame_length)) / frame_step))  # Make sure that we have at least 1 frame
+
+    pad_signal_length = num_frames * frame_step + frame_length
+    z = np.zeros((pad_signal_length - signal_length))
+    pad_signal = np.append(signal,z) # Pad Signal to make sure that all frames have equal number of samples without truncating any samples from the original signal
+
+    indices = np.tile(np.arange(0, frame_length), (num_frames, 1)) + np.tile(np.arange(0, num_frames * frame_step, frame_step), (frame_length, 1)).T
+    frames = pad_signal[indices.astype(np.int32, copy=False)]
+    frames *= np.hamming(frame_length)
+    time = np.linspace(0,int(len(signal)/sample_rate), num_frames)
+    return frames, time
+
+def getMelFilteredFreqs(filename, nFilter, param, reduceNoise = True, amplifyHighFreqs = True):
+    nfft = param['nfft']
+    sample_rate, signal = scipy.io.wavfile.read(filename)  # File assumed to be in the same directory
+    if len(signal)==0:
+        print(filename)
+        return None, None
+    if signal.ndim>1: #Check for stereo
+        signal = signal[:,0] #Use only mono
+    if amplifyHighFreqs:
+        pre_emphasis = 0.97
+        signal = np.append(signal[0], signal[1:] - pre_emphasis * signal[:-1])
+    frames, time = getFrames(signal, sample_rate, param)
+    
+    mag_frames = np.absolute(np.fft.rfft(frames, nfft))  # Magnitude of the FFT
+    pow_frames = ((1.0 / nfft) * ((mag_frames) ** 2))  # Power Spectrum
+
+    fbank=getFilterBank(sample_rate, nFilter, param)
+    
+    melFiltered_signal = np.dot(pow_frames, fbank.T)
+    melFiltered_signal = np.where(melFiltered_signal == 0, np.finfo(float).eps, melFiltered_signal)  # Numerical Stability
+    melFiltered_signal = 20 * np.log10(melFiltered_signal)  # dB
+    if reduceNoise:
+        melFiltered_signal -= (np.mean(melFiltered_signal, axis=0) + 1e-8)
+    return melFiltered_signal, time
+
+def calc_fft_mel(param):
+    """Calculates the fft data fromt the wav files with mel filters. Uses
+    parameter dictionary as an argument."""
+    # read paramter from dictionary
+    dataset_loc = param['data_folder'] + param['wav_files_folder']
+    out_folder = param['data_folder'] + data_folder_format_string_mel(param,
+                                                                      csv_stage=True)
+    mel_filter = param['mel_filter']
+    if os.path.exists(out_folder):
+        shutil.rmtree(out_folder)
+    os.makedirs(out_folder)
+    os.makedirs(out_folder + '/dev')
+    os.makedirs(out_folder + '/eval')
+    shutil.copyfile(dataset_loc+"/dev-labels.csv", out_folder+"/dev-labels.csv")
+    print('Processing dev files:')
+    # train files
+    train_files = sorted([x.split('\\')[-1] \
+                          for x in glob.glob(f'{dataset_loc}/dev/*.wav')])
+    #max_len = len(train_files)
+    # load and save train files (we could pass the full array to the function,
+    # but not everyone might have the mem space to do so)
+    for i, file_name in tqdm(enumerate(train_files)):
+        #if i % 1000 == 0:
+        #    print(i, '/', max_len)
+        # load
+        train_feats, train_times = getMelFilteredFreqs(file_name, mel_filter,
+                                                       param,
+                                                       reduceNoise=True,
+                                                       amplifyHighFreqs=True)
+        if train_feats is None or train_times is None:
+            continue
+        # merge time and fft
+        tmp = np.concatenate([np.expand_dims(train_times, axis=1), train_feats], axis=1)
+        # save to csv
+        name = file_name.split('/')[-1]
+        np.savetxt(out_folder + '/dev/' + name.replace('.wav', '.csv'), tmp, delimiter=',')
+    # plot example fft:
+    #print('===', 'Plotting example fft for', name, '============')
+    #plot_fft(train_feats[name], train_times[name], name)
+    #plt.savefig(name.replace('.wav', '.png'))
+    print('Processing eval files:')
+    # load eval files
+    eval_files = sorted([x.split('\\')[-1] for x in glob.glob(f'{dataset_loc}/eval/*.wav')])
+    #max_len = len(eval_files)
+    # save eval files
+    for i, file_name in tqdm(enumerate(eval_files)):
+        #if i % 1000 == 0:
+        #    print(i, '/', max_len)
+        eval_feats, eval_times = getMelFilteredFreqs(file_name, mel_filter, param)
+        # merge time and fft
+        tmp = np.concatenate([np.expand_dims(eval_times, axis=1), eval_feats], axis=1)
+        # save to csv
+        name = file_name.split('/')[-1]
+        np.savetxt(out_folder + '/eval/' + name.replace('.wav', '.csv'), tmp, delimiter=',')
 
 def load_data(fileListName, datasetName, pathToDataDir="./../data/"):
     """Loads csv data with labels. Challenge dummy csv file can be used to
@@ -317,6 +453,69 @@ def loading_block1(param):
         np.save((npy_folder + 'filelist_challenge'), filelist_challenge)
     return X_dev, Y_dev, timepoints, filelist_dev, X_challenge, filelist_challenge
 
+def loading_block2(param):
+    """
+    Like loading_block1 but with mel filters.
+    
+    Loading block for pipeline. Uses parameter in param dictionary to
+    calculate csv files from raw wav data, scales it it and create usable
+    numpy arrays. Saves both, csv files and numpy arrays in two different
+    folders, named by data_folder_format_string function. Checks if
+    calculations are already existent and reads file if they are to save time.
+    """
+    csv_folder = (param['data_folder']
+                  + data_folder_format_string_mel(param, csv_stage=True))
+    print('Mel filter version loading block.')
+    #mel from wav
+    if not os.path.exists(csv_folder):
+        print('Starting transformation from wav files to csv files (mel).')
+        calc_fft_mel(param)
+    else:
+        print('Csv from wav files already existend. Skipping calc_fft_mel.')
+    # load
+    npy_folder = (param['data_folder']
+                  + data_folder_format_string_mel(param, csv_stage=False))
+    dev_csv = param['dev_csv']
+    eval_csv = param['eval_csv']
+    if os.path.exists(npy_folder):
+        print('Scaled numpy files already existend.',
+              'Skipping scaling and load_data function.')
+        X_dev = np.load(npy_folder + 'X_dev.npy')
+        Y_dev = np.load(npy_folder + 'Y_dev.npy')
+        timepoints = np.load(npy_folder + 'timepoints.npy')
+        filelist_dev = np.load(npy_folder + 'filelist_dev.npy')
+        X_challenge = np.load(npy_folder + 'X_challenge.npy')
+        filelist_challenge = np.load(npy_folder + 'filelist_challenge.npy')
+    else:
+        print('Loading dev set:')
+        X_dev, Y_dev, timepoints, filelist_dev = load_data(dev_csv,
+                                                           csv_folder + 'dev/',
+                                                           pathToDataDir=param['data_folder'])
+        print('Loading eval set:')
+        X_challenge, _, _, filelist_challenge = load_data(eval_csv,
+                                                          csv_folder + 'eval/',
+                                                          pathToDataDir=param['data_folder'])
+        print('Scaling files.')
+        X_dev, X_challenge = scale(X_dev, X_challenge, scaling='no')
+        print('Saving to numpy arrays.')
+        os.makedirs(npy_folder)
+        np.save((npy_folder + 'X_dev'), X_dev)
+        np.save((npy_folder + 'Y_dev'), Y_dev)
+        np.save((npy_folder + 'timepoints'), timepoints)
+        np.save((npy_folder + 'filelist_dev'), filelist_dev)
+        np.save((npy_folder + 'X_challenge'), X_challenge)
+        np.save((npy_folder + 'filelist_challenge'), filelist_challenge)
+    return X_dev, Y_dev, timepoints, filelist_dev, X_challenge, filelist_challenge
+
+def shuffle_block1(X_dev, Y_dev, filelist_dev, random_seed='random'):
+    """Shuffelt trainings daten mitsamt filelist."""
+    if random_seed == 'random':
+        X_dev, Y_dev, filelist_dev = shuffle(X_dev, Y_dev, filelist_dev)
+    else:
+        X_dev, Y_dev, filelist_dev = shuffle(X_dev, Y_dev, filelist_dev,
+                                             random_state=random_seed)
+    return X_dev, Y_dev, filelist_dev
+
 def split_block1(X_dev, Y_dev, timepoints, filelist_dev, split_param):
     """Splits data set by selecting the last chunk for the test set."""
     i_min, i_max = split_param['test_split_range']
@@ -377,6 +576,46 @@ def model_block1_unet(X_train_val, Y_train_val, unet_param):
     plot_history(history, 'loss')
     return history, model
 
+def model_block2_unet(X_train_val, Y_train_val, unet_param):
+    """Trains unet."""
+    if os.path.exists('model.h5'):
+        os.remove('model.h5')
+        print('Existing model.h5 removed.')
+    print('Tensorflow version:', tf.__version__)
+    if unet_param['load_path'] is not None:
+        print('Loading existing model from path:', unet_param['load_path'])
+        model = tf.keras.models.load_model(unet_param['load_path'])
+        history = None
+        return history, model
+    channels = unet_param['channels']
+    inputShape = X_train_val[0].shape
+    model = unet.u_net(inputShape, channels,
+                       lessParameter=unet_param['lessParameter'],
+                       kernel_size=unet_param['kernel_size'],
+                       first_kernel_size=unet_param['first_kernel_size'])
+    i_min, i_max = unet_param['val_split_range']
+    print('Splitting val set at indices', i_min, 'to', i_max, 'from train set.')
+    X_val, Y_val = X_train_val[i_min:i_max], Y_train_val[i_min:i_max]
+
+    X_train = np.delete(X_train_val, list(range(i_min, i_max)), axis=0)
+    Y_train = np.delete(Y_train_val, list(range(i_min, i_max)), axis=0)
+    checkpoint = tf.keras.callbacks.ModelCheckpoint('model.h5', verbose=1,
+                                                    monitor='val_loss',
+                                                    save_best_only=True,
+                                                    mode='auto')
+    opt = tf.keras.optimizers.Adam(learning_rate=unet_param['learning_rate'])
+    model.compile(optimizer=opt, loss=unet_param['loss'],
+                  metrics=['mae', 'accuracy'])
+    history = model.fit(X_train, Y_train, batch_size=unet_param['batch_size'],
+                        epochs=unet_param['epochs'],
+                        validation_data=(X_val, Y_val),
+                        shuffle=True, callbacks=[checkpoint])
+    model.save(unet_param['model_save_path'] + 'model')
+    plot_history(history, 'accuracy')
+    plot_history(history, 'mae')
+    plot_history(history, 'loss')
+    return history, model
+
 def dice_coef(y_true, y_pred, smooth=1):
     """
     Dice = (2*|X & Y|)/ (|X|+ |Y|)
@@ -420,6 +659,23 @@ def getPredictionAsSequenceDF(prediction, timepoints, fileList, calculateProbs=F
                 detectedEvents.append(events)
     return pd.DataFrame(detectedEvents, columns=columns)
 
+def plot_confusion_matrix(y_true, y_pred):
+    """Plots confusion matrix usind sklearn. Transforms one hot encoded predictions."""
+    y_true = np.argmax(y_true, axis=2).flatten()
+    y_pred = np.argmax(y_pred, axis=2).flatten()
+    mtrx = confusion_matrix(y_true, y_pred)
+    print(mtrx)
+    plt.imshow(mtrx)
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.colorbar()
+    plt.show()
+    plt.imshow(mtrx[1:, 1:])
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.colorbar()
+    plt.show()
+
 def evaluation_block1(X_test, Y_test, timepoints, testFileList, model,
                       eval_param):
     """Evaluates current model on test data from dev set. Also calculates
@@ -429,9 +685,10 @@ def evaluation_block1(X_test, Y_test, timepoints, testFileList, model,
     print('')
     print('Evaluation:')
     print('Loss, MAE, Accuracy', scores_list)
+    plot_confusion_matrix(Y_test, prediction)
     prediction_df = getPredictionAsSequenceDF(prediction, timepoints, testFileList)
     pred_csv_path = eval_param['prediction_path'] + 'test_pred_model.csv'
-    prediction_df.to_csv(pred_csv_path, index=False)
+    prediction_df.to_csv(pred_csv_path, index=False) 
     #dev_csv_path = eval_param['data_folder'] + eval_param['dev_csv']
     #dev_df = pd.read_csv(dev_csv_path, header=0, usecols=[0, 1, 2, 3])
     #test_df = dev_df[dev_df.filename.isin(testFileList)]
@@ -440,8 +697,6 @@ def evaluation_block1(X_test, Y_test, timepoints, testFileList, model,
     print('PSDS', psds_info)
     print('')
     return scores_list, psds_info[0]
-
- #TODO Warum werden die Farben noch nicht fest gemapped?
  
 def get_labelcolormap():
     """Gets colormap and norm for plotting labels."""
@@ -548,6 +803,11 @@ def postProcess(prediction_one_hot, timepoints, timeThresh=0.5, noiseThresh=0.3)
             probabilitiesOfGroup[:, newKey]
     return finalPrediction
 
+def post_process_window(prediction_one_hot):
+    """Uses a window with 1s and 2s and fills class that has the most probable
+    prediction. Uses at least two classes and maximum."""
+    pass
+
 def postprocessing_with_evaluation_block1(x_test, y_test, timepoints,
                                           test_file_list, x_challenge,
                                           challenge_file_list, model, param):
@@ -563,6 +823,7 @@ def postprocessing_with_evaluation_block1(x_test, y_test, timepoints,
         print('Filling post processing used.')
         post_processed_test = np.array([postProcess(pred, timepoints) for pred in prediction])
         post_processed_prediction = np.array([postProcess(pred, timepoints) for pred in challenge_prediction])
+        plot_confusion_matrix(y_test, post_processed_test)
         # calculate psds for test set
         df_test_pred = getPredictionAsSequenceDF(post_processed_test, timepoints, test_file_list)
         pred_csv_path = param['prediction_path'] + 'test_pred_postprocessed.csv'
