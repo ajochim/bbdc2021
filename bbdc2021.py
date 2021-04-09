@@ -31,6 +31,8 @@ import tensorflow as tf
 import evaluation.evaluate as evaluate
 import models.cnn.u_net_1d as unet
 reload(unet)
+import models.cnn.u_net_2d as unet2d
+reload(unet2d)
 from tqdm import tqdm
 import ast
 
@@ -616,6 +618,43 @@ def model_block2_unet(X_train_val, Y_train_val, unet_param):
     plot_history(history, 'loss')
     return history, model
 
+def model_block1_unet2d(X_train_val, Y_train_val, unet_param):
+    """Trains unet2d."""
+    if os.path.exists('model.h5'):
+        os.remove('model.h5')
+        print('Existing model.h5 removed.')
+    print('Tensorflow version:', tf.__version__)
+    if unet_param['load_path'] is not None:
+        print('Loading existing model from path:', unet_param['load_path'])
+        model = tf.keras.models.load_model(unet_param['load_path'])
+        history = None
+        return history, model
+    channels = unet_param['channels']
+    inputShape = X_train_val[0].shape
+    model = unet2d.u_net_2d(inputShape, channels)
+    i_min, i_max = unet_param['val_split_range']
+    print('Splitting val set at indices', i_min, 'to', i_max, 'from train set.')
+    X_val, Y_val = X_train_val[i_min:i_max], Y_train_val[i_min:i_max]
+
+    X_train = np.delete(X_train_val, list(range(i_min, i_max)), axis=0)
+    Y_train = np.delete(Y_train_val, list(range(i_min, i_max)), axis=0)
+    checkpoint = tf.keras.callbacks.ModelCheckpoint('model.h5', verbose=1,
+                                                    monitor='val_loss',
+                                                    save_best_only=True,
+                                                    mode='auto')
+    opt = tf.keras.optimizers.Adam(learning_rate=unet_param['learning_rate'])
+    model.compile(optimizer=opt, loss=unet_param['loss'],
+                  metrics=['mae', 'accuracy'])
+    history = model.fit(X_train, Y_train, batch_size=unet_param['batch_size'],
+                        epochs=unet_param['epochs'],
+                        validation_data=(X_val, Y_val),
+                        shuffle=True, callbacks=[checkpoint])
+    model.save(unet_param['model_save_path'] + 'model')
+    plot_history(history, 'accuracy')
+    plot_history(history, 'mae')
+    plot_history(history, 'loss')
+    return history, model
+
 def dice_coef(y_true, y_pred, smooth=1):
     """
     Dice = (2*|X & Y|)/ (|X|+ |Y|)
@@ -745,7 +784,8 @@ def plotPredictionAndGTFromDf(y_true_df, y_pred_df, case, timeDelta=100):
     plt.figure(figsize=(30, 20))
     plt.imshow(toPlot, cmap=cmap, norm=norm)
 
-def postProcess(prediction_one_hot, timepoints, timeThresh=0.5, noiseThresh=0.3):
+def postProcess(prediction_one_hot, timepoints, timeThresh=0.5, noiseThresh=0.3,
+                base=2):
     """Post process by filling up values between predictions."""
     groups = groupSequences(prediction_one_hot, timepoints)
     classNum = prediction_one_hot.shape[1]
@@ -793,7 +833,8 @@ def postProcess(prediction_one_hot, timepoints, timeThresh=0.5, noiseThresh=0.3)
             else:
                 overallLength = beforeLength+afterLength + ownLength
                 maxLength = np.max(overallLength)
-                lengthFactor = np.exp2(-maxLength/overallLength)
+                #lengthFactor = np.exp2(-maxLength/overallLength)
+                lengthFactor = base ** (-maxLength/overallLength)
                 #print(lengthFactor)
                 #print((probabilityForClass*100).astype(int))
                 weightedProbabilities = probabilityForClass*lengthFactor
@@ -803,9 +844,33 @@ def postProcess(prediction_one_hot, timepoints, timeThresh=0.5, noiseThresh=0.3)
             probabilitiesOfGroup[:, newKey]
     return finalPrediction
 
-def post_process_window(prediction_one_hot):
+def post_process_window(prediction_one_hot, class_threshold=0.05):
     """Uses a window with 1s and 2s and fills class that has the most probable
-    prediction. Uses at least two classes and maximum."""
+    prediction. Uses at least two classes and maximum.
+    class_threshold in percentage of total time. Decides if class will be included."""
+    for instance in prediction_one_hot[:]:
+        # find 4 most probable classes
+        label_encoded = np.argmax(instance, axis=1)
+        print(label_encoded)
+        values, counts = np.unique(label_encoded, return_counts=True)
+        print(values, counts)
+        most_counted_4_indexes = counts.argsort()[-5:-1][::-1]
+        print(most_counted_4_indexes)
+        most_counted_4 = values[most_counted_4_indexes]
+        print(most_counted_4)
+        # klassen auch oft doppelt! einfach direkt windows abfahren?
+        # vlt nur von denen die mind 1 mal predicted wurde um zeit zu sparen
+
+        # window function 1s to 2s?
+
+        # get most probable
+        
+        # check overlap
+        
+        # del 1 or 2 depening on threshold
+
+        # create new sequence
+    # wahrscheinlich nicht lohnenswert zu implementieren
     pass
 
 def postprocessing_with_evaluation_block1(x_test, y_test, timepoints,
@@ -821,8 +886,13 @@ def postprocessing_with_evaluation_block1(x_test, y_test, timepoints,
         return prediction, challenge_prediction
     elif param['post_processing'] == 'fill':
         print('Filling post processing used.')
-        post_processed_test = np.array([postProcess(pred, timepoints) for pred in prediction])
-        post_processed_prediction = np.array([postProcess(pred, timepoints) for pred in challenge_prediction])
+        timethres = param['post_timethres']
+        noisethres = param['post_noisethres']
+        base = param['post_base']
+        post_processed_test = np.array([postProcess(pred, timepoints, timeThresh=timethres, noiseThresh=noisethres,
+                base=base) for pred in prediction])
+        post_processed_prediction = np.array([postProcess(pred, timepoints, timeThresh=timethres, noiseThresh=noisethres,
+                base=base) for pred in challenge_prediction])
         plot_confusion_matrix(y_test, post_processed_test)
         # calculate psds for test set
         df_test_pred = getPredictionAsSequenceDF(post_processed_test, timepoints, test_file_list)
