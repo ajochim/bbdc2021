@@ -389,6 +389,10 @@ def scale(x_dev, x_challenge, scaling='no'):
         scaler = StandardScaler()
     elif scaling == 'minmax':
         scaler = MinMaxScaler()
+    elif scaling == 'minmax097':
+        scaler = MinMaxScaler(feature_range=(0.03, 0.97))
+    elif scaling == 'minmax0999':
+        scaler = MinMaxScaler(feature_range=(0.001, 0.999))
     else:
         print('Unknown scaling mode.')
         return None
@@ -444,7 +448,7 @@ def loading_block1(param):
                                                           csv_folder + 'eval/',
                                                           pathToDataDir=param['data_folder'])
         print('Scaling files.')
-        X_dev, X_challenge = scale(X_dev, X_challenge, scaling='no')
+        X_dev, X_challenge = scale(X_dev, X_challenge, scaling=param['scaling'])
         print('Saving to numpy arrays.')
         os.makedirs(npy_folder)
         np.save((npy_folder + 'X_dev'), X_dev)
@@ -498,7 +502,7 @@ def loading_block2(param):
                                                           csv_folder + 'eval/',
                                                           pathToDataDir=param['data_folder'])
         print('Scaling files.')
-        X_dev, X_challenge = scale(X_dev, X_challenge, scaling='no')
+        X_dev, X_challenge = scale(X_dev, X_challenge, scaling=param['scaling'])
         print('Saving to numpy arrays.')
         os.makedirs(npy_folder)
         np.save((npy_folder + 'X_dev'), X_dev)
@@ -508,6 +512,7 @@ def loading_block2(param):
         np.save((npy_folder + 'X_challenge'), X_challenge)
         np.save((npy_folder + 'filelist_challenge'), filelist_challenge)
     return X_dev, Y_dev, timepoints, filelist_dev, X_challenge, filelist_challenge
+
 
 def shuffle_block1(X_dev, Y_dev, filelist_dev, random_seed='random'):
     """Shuffelt trainings daten mitsamt filelist."""
