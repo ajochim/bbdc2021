@@ -943,3 +943,21 @@ def addMissingSequences(mainPredDf, secondPredDf, minLength=0):
     additionalPredictions = pd.DataFrame(data=predictionsToAdd, columns=['filename', 'onset', 'offset', 'event_label'])
     print("Added "+str(len(predictionsToAdd)) + " sequences")
     return mainPredDf.append(additionalPredictions)
+
+def mergeNeighboringSequences(prediction, maxSequenceLength = 2):
+    prediction = prediction.sort_values(by=['filename', 'onset'])
+    connectedPrediction = []
+    mergingCounter = 0
+    lastSequence = [""]
+    for index, sequenceRow in prediction.iterrows():
+        sequence = sequenceRow.values
+        if lastSequence[0]==sequence[0] and lastSequence[3]==sequence[3] and sequence[2]-lastSequence[1]<=maxSequenceLength:
+            lastSequence = [sequence[0], lastSequence[1], sequence[2], sequence[3]]
+            mergingCounter +=1
+            continue
+        if len(lastSequence)>=4:
+            connectedPrediction.append(lastSequence[:4]) 
+        lastSequence = sequence
+    connectedDf = pd.DataFrame(data=connectedPrediction, columns=['filename', 'onset', 'offset', 'event_label'])
+    print("Merged "+str(mergingCounter)+ " sequences")
+    return connectedDf
