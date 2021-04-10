@@ -929,3 +929,17 @@ def challenge_prediction_block1(challenge_prediction, timepoints,
                                    filelist_challenge, calculateProbs=True)
     df.to_csv(param['submission_file_path'], index=False)
     print('Submission file saved at', param['submission_file_path'])
+
+def addMissingSequences(mainPredDf, secondPredDf, minLength=0):
+    predictionsToAdd = [] 
+    secondPredDf['duration'] = secondPredDf.offset - secondPredDf.onset
+    for filename in secondPredDf.filename.unique():
+        mainFileRows = mainPredDf.loc[mainPredDf['filename'] == filename]
+        secondFileRows = secondPredDf.loc[(secondPredDf['filename'] == filename) & (secondPredDf['duration']>=minLength)]
+        for index, sequence in secondFileRows.iterrows():
+            overlappingSequences = mainFileRows.loc[(mainFileRows['onset']<=sequence.offset) & (mainFileRows['offset']>=sequence.onset)]
+            if len(overlappingSequences)==0:
+                predictionsToAdd.append([sequence.filename, sequence.onset, sequence.offset, sequence.event_label])
+    additionalPredictions = pd.DataFrame(data=predictionsToAdd, columns=['filename', 'onset', 'offset', 'event_label'])
+    print("Added "+str(len(predictionsToAdd)) + " sequences")
+    return mainPredDf.append(additionalPredictions)
