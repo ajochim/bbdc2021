@@ -33,6 +33,8 @@ import models.cnn.u_net_1d as unet
 reload(unet)
 import models.cnn.u_net_2d as unet2d
 reload(unet2d)
+import models.rnn.rnn as rnn
+reload(rnn)
 from tqdm import tqdm
 import ast
 
@@ -655,6 +657,51 @@ def model_block1_unet2d(X_train_val, Y_train_val, unet_param):
                         validation_data=(X_val, Y_val),
                         shuffle=True, callbacks=[checkpoint])
     model.save(unet_param['model_save_path'] + 'model')
+    plot_history(history, 'accuracy')
+    plot_history(history, 'mae')
+    plot_history(history, 'loss')
+    return history, model
+
+def model_block1_rnn(X_train_val, Y_train_val, model_param):
+    """Trains recurrent neural network. Gru and lstm can be chosen."""
+    if os.path.exists('model.h5'):
+        os.remove('model.h5')
+        print('Existing model.h5 removed.')
+    print('Tensorflow version:', tf.__version__)
+    if model_param['load_path'] is not None:
+        print('Loading existing model from path:', model_param['load_path'])
+        model = tf.keras.models.load_model(model_param['load_path'])
+        history = None
+        return history, model
+    layers = model_param['layers']
+    cell_type = model_param['cell_type']
+    dilation_rates = model_param['dilation_rates']
+    conv_filter = model_param['conv_filter']
+    conv_kernel_size = model_param['conv_kernel_size']
+    input_shape = X_train_val[0].shape
+    model = rnn.rnn(input_shape, layers, cell_type=cell_type,
+                    dilation_rates=dilation_rates,
+                    conv_filter=conv_filter,
+                    conv_kernel_size=conv_kernel_size)
+    model.summary()
+    i_min, i_max = model_param['val_split_range']
+    print('Splitting val set at indices', i_min, 'to', i_max, 'from train set.')
+    X_val, Y_val = X_train_val[i_min:i_max], Y_train_val[i_min:i_max]
+
+    X_train = np.delete(X_train_val, list(range(i_min, i_max)), axis=0)
+    Y_train = np.delete(Y_train_val, list(range(i_min, i_max)), axis=0)
+    checkpoint = tf.keras.callbacks.ModelCheckpoint('model.h5', verbose=1,
+                                                    monitor='val_loss',
+                                                    save_best_only=True,
+                                                    mode='auto')
+    opt = tf.keras.optimizers.Adam(learning_rate=model_param['learning_rate'])
+    model.compile(optimizer=opt, loss=model_param['loss'],
+                  metrics=['mae', 'accuracy'])
+    history = model.fit(X_train, Y_train, batch_size=model_param['batch_size'],
+                        epochs=model_param['epochs'],
+                        validation_data=(X_val, Y_val),
+                        shuffle=True, callbacks=[checkpoint])
+    model.save(model_param['model_save_path'] + 'model')
     plot_history(history, 'accuracy')
     plot_history(history, 'mae')
     plot_history(history, 'loss')
